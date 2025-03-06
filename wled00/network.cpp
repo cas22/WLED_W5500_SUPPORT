@@ -16,9 +16,20 @@ const managed_pin_type esp32_nonconfigurable_ethernet_pins[WLED_ETH_RSVD_PINS_CO
     { 27, true  }, // RMII EMAC CRS_DV == Carrier Sense and RX Data Valid
 };
 
+#define ETH_PHY_W5500 ((eth_phy_type_t)3) // Define new PHY type
+
 const ethernet_settings ethernetBoards[] = {
   // None
   {
+  },
+  // Add W5500 settings
+  {
+    0,                   // eth_address (not used for W5500)
+    -1,                  // eth_power (not applicable for W5500)
+    -1,                  // eth_mdc (not applicable for W5500)
+    -1,                  // eth_mdio (not applicable for W5500)
+    ETH_PHY_W5500,       // eth_type (new type specific for W5500)
+    ETH_CLOCK_GPIO0_OUT  // eth_clk_mode (configurable clock mode)
   },
 
   // WT32-EHT01
@@ -167,6 +178,43 @@ bool initEthernet()
 
   // Ethernet initialization should only succeed once -- else reboot required
   ethernet_settings es = ethernetBoards[ethernetType];
+  
+  if (es.eth_type == ETH_PHY_W5500) {
+    // Allocate pins specific to W5500
+    managed_pin_type pinsToAllocate[] = {
+        { 18, true }, // SCK
+        { 23, true }, // MOSI
+        { 19, false }, // MISO
+        { 10, true }  // CS (chip select)
+    };
+
+    if (!PinManager::allocateMultiplePins(pinsToAllocate, 4, PinOwner::Ethernet)) {
+        DEBUG_PRINTLN(F("initE: Failed to allocate W5500 pins"));
+        return false;
+    }
+
+    // Begin ETH initialization for W5500
+    if (!ETH.begin(
+                (uint8_t)es.eth_address,
+                (int)es.eth_power,
+                (int)es.eth_mdc,
+                (int)es.eth_mdio,
+                (eth_phy_type_t)ETH_PHY_W5500, // Use W5500 as the PHY type
+                (eth_clock_mode_t)es.eth_clk_mode
+                )) {
+        DEBUG_PRINTLN(F("initC: W5500 ETH.begin() failed"));
+        // Deallocate allocated pins upon failure
+        for (managed_pin_type mpt : pinsToAllocate) {
+            PinManager::deallocatePin(mpt.pin, PinOwner::Ethernet);
+        }
+        return false;
+    }
+
+      DEBUG_PRINTLN(F("initC: *** W5500 successfully configured with ETH library! ***"));
+      return true;
+  }
+
+
   managed_pin_type pinsToAllocate[10] = {
     // first six pins are non-configurable
     esp32_nonconfigurable_ethernet_pins[0],
